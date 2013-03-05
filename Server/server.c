@@ -1,0 +1,235 @@
+#include "../definitions.h"
+
+int main(int argc, char *argv[])
+{
+	head=NULL;
+	
+	int sockfd, newsockfd, portno;			//standard variables, binding & listening same as in sever_multithreading.c file (next 25 lines).
+	socklen_t clilen;
+	struct sockaddr_in serv_addr, cli_addr;
+
+	if (argc < 2)
+	{
+		fprintf(stderr,"ERROR, no port provided\n");
+		exit(1);
+	}
+	
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	if (sockfd < 0) 
+		error("ERROR opening socket");
+	
+	memset((char *) &serv_addr,0,sizeof(serv_addr));
+	portno = atoi(argv[1]);
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_addr.s_addr = INADDR_ANY;
+	serv_addr.sin_port = htons(portno);
+	
+	if (bind(sockfd, (struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) 
+		error("ERROR on binding");
+	listen(sockfd,5);
+	
+	clilen = sizeof(cli_addr);
+	
+	int n;
+	
+	while(1)
+	{
+		remove_expired_events();
+		message *buffer=new message;
+		newsockfd = accept(sockfd,(struct sockaddr *) &cli_addr,&clilen);
+		if (newsockfd < 0) 
+			error("ERROR on accept");
+		n = read(newsockfd,buffer,sizeof(message));			//read from a file descriptor
+		if (n < 0)
+			error("ERROR reading from socket");
+		
+		/*print_buffer(buffer);*/
+
+	/*Type 1 to 5 is same as in definitions.h (Commented)*/
+
+		if(buffer->type==1)			//handling add functionality
+		{
+			traverse=head;
+			while(traverse!=NULL)
+			{
+				if(!strcmp(traverse->date,buffer->date) && !strcmp(traverse->name,buffer->name))
+				{
+					if((atoi(traverse->start_time)<=atoi(buffer->start_time) && atoi(traverse->end_time)>=atoi(buffer->start_time))||(atoi(traverse->start_time)<=atoi(buffer->end_time) && atoi(traverse->end_time)>=atoi(buffer->end_time)))
+					{
+						n = write(newsockfd,"Conflict detected!",18);		//writing to a file descriptor
+						if (n < 0)
+							error("ERROR writing to socket");
+						break;
+					}
+				}
+				current=traverse;
+				traverse=traverse->next;
+			}
+			if(traverse==NULL)
+			{
+				if(head!=NULL)
+				{
+					message *newmessage=new message;
+					newmessage=buffer;
+					current->next=newmessage;
+					current=current->next;
+				}
+				else
+				{
+					head=buffer;
+					current=buffer;
+				}
+				n = write(newsockfd,"Event Added!!",13);			//writing to a file descriptor
+				if (n < 0)
+					error("ERROR writing to socket");
+			}
+		}
+		else if(buffer->type==2)		//handling remove functionality
+		{
+			bool flag=0;
+			traverse=head;
+			while(traverse!=NULL)
+			{
+				if(!strcmp(traverse->date,buffer->date) && !strcmp(traverse->name,buffer->name) && (atoi(traverse->start_time)==atoi(buffer->start_time)))
+				{
+						if(traverse==head)
+						{
+							head=head->next;
+							traverse=head;
+							n = write(newsockfd,"Event Removed!!",15);			//writing to a file descriptor
+							if (n < 0)
+								error("ERROR writing to socket");
+							break;
+						}
+						else
+						{
+							current->next=traverse->next;
+							traverse=traverse->next;
+							n = write(newsockfd,"Event Removed!!",15);			//writing to a file descriptor
+							if (n < 0)
+								error("ERROR writing to socket");
+							flag=1;
+							break;
+						}
+				}
+				else
+				{
+					current=traverse;
+					traverse=traverse->next;
+				}
+			}
+			if(traverse==NULL && !flag)
+			{
+				n = write(newsockfd,"None of event removed!",22);				 //writing to a file descriptor
+				if (n < 0)
+					error("ERROR writing to socket");
+			}
+		}
+		else if(buffer->type==3)		//handling update functionality
+		{
+			traverse=head;
+			while(traverse!=NULL)
+			{
+				if(!strcmp(traverse->date,buffer->date) && !strcmp(traverse->name,buffer->name) && !strcmp(traverse->start_time,buffer->start_time))
+				{
+					break;
+				}
+				previous=traverse;
+				traverse=traverse->next;
+			}
+			if(traverse==NULL)
+			{
+				n = write(newsockfd,"None of event updated!",22);					//writing to a file descriptor
+				if (n < 0)
+					error("ERROR writing to socket");
+			}
+			else
+			{
+				traverse_part=head;
+				while(traverse_part!=NULL)
+				{
+					if(traverse_part==traverse)
+					{
+						traverse_part=traverse_part->next;
+						continue;
+					}
+					if(!strcmp(traverse_part->date,buffer->date) && !strcmp(traverse_part->name,buffer->name))
+					{
+						if((atoi(traverse_part->start_time)<=atoi(buffer->start_time) && atoi(traverse_part->end_time)>=atoi(buffer->start_time))||(atoi(traverse_part->start_time)<=atoi(buffer->end_time) && atoi(traverse_part->end_time)>=atoi(buffer->end_time)))
+						{
+							n = write(newsockfd,"Conflict detected!\n",18);				//writing to a file descriptor
+							if (n < 0)
+								error("ERROR writing to socket");
+							n = write(newsockfd,"None of event updated!\n",22);			//writing to a file descriptor
+							if (n < 0)
+								error("ERROR writing to socket");
+							break;
+						}
+					}
+					traverse_part=traverse_part->next;
+				}
+
+				if(traverse_part==NULL)
+				{
+					message *newmessage=new message;
+					newmessage=buffer;
+					if(traverse==head)
+					{
+						newmessage->next=head->next;
+						head=newmessage;
+					}
+					else if(head!=NULL)
+					{
+						previous->next=newmessage;
+						newmessage->next=traverse->next;
+					}
+					n = write(newsockfd,"Event Updated!!",15);				//writing to a file descriptor
+					if (n < 0)
+						error("ERROR writing to socket");
+				}
+			}
+		}
+		else if(buffer->type==4)		//handling get functionality of type 4 (type explained in client.c flie)
+		{
+			traverse=head;
+			while(traverse!=NULL)
+			{
+				if(!strcmp(traverse->date,buffer->date) && !strcmp(traverse->name,buffer->name))
+				{
+					if(atoi(traverse->start_time)==atoi(buffer->start_time))
+					{
+						n = write(newsockfd,traverse,sizeof(message));				//writing to a file descriptor
+						if (n < 0)
+							error("ERROR writing to socket");
+						break;
+					}
+				}
+				traverse=traverse->next;
+			}
+			strcpy(temp->date,"252525");
+			n = write(newsockfd,temp,sizeof(message));				//writing to a file descriptor
+			if (n < 0)
+				error("ERROR writing to socket");
+		}
+		else if(buffer->type==5)		//handling get functionality of type 5 (type explained in client.c flie)
+		{
+			traverse=head;
+			while(traverse!=NULL)
+			{
+				if(!strcmp(traverse->date,buffer->date) && !strcmp(traverse->name,buffer->name))
+				{
+					n = write(newsockfd,traverse,sizeof(message));				//writing to a file descriptor
+					if (n < 0)
+						error("ERROR writing to socket");
+				}
+				traverse=traverse->next;
+			}
+			strcpy(temp->date,"252525");
+			n = write(newsockfd,temp,sizeof(message));					//writing to a file descriptor
+			if (n < 0)
+				error("ERROR writing to socket");
+		}
+	}
+	close(sockfd);
+return 0; 
+}

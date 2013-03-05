@@ -1,0 +1,185 @@
+#include "../definitions.h"
+
+int main(int argc, char *argv[])
+{
+	message *buffer=new message;
+	message *temp=new message;
+	
+	int sockfd, portno, n;
+	
+	struct sockaddr_in serv_addr;
+	struct hostent *server;
+	
+	char msg[256];
+	
+	if (argc < 5 || argc > 9)
+	{
+		fprintf(stderr,"Usage :\n%s hostname port myname add date start_time end_time type_of_event\n", argv[0]);//9
+		fprintf(stderr,"%s hostname port myname remove date start_time\n", argv[0]);//7
+		fprintf(stderr,"%s hostname port myname update date start_time end_time type_of_event\n", argv[0]);//9
+		fprintf(stderr,"%s hostname port myname get date start_time\n", argv[0]);//7
+		fprintf(stderr,"%s hostname port myname get date\n", argv[0]);//6
+		fprintf(stderr,"%s hostname port myname getall\n", argv[0]);//5
+		exit(0);
+	}
+	
+	if(!strcmp(argv[4],"add"))
+	{
+		if(argc!=9 || !check_date(argv[5]) || !check_time(argv[6]) || !check_time(argv[7]))
+		{
+			fprintf(stderr,"Usage :\n %s hostname port myname add date start_time end_time type_of_event\n", argv[0]);//9
+			exit(0);
+		}
+		strcpy(buffer->name,argv[3]);
+		strcpy(buffer->date,argv[5]);
+		strcpy(buffer->start_time,argv[6]);
+		strcpy(buffer->end_time,argv[7]);
+		strcpy(buffer->type_of_event,argv[8]);
+		buffer->type=1;
+		buffer->next=NULL;
+	}
+	else if(!strcmp(argv[4],"remove"))
+	{
+		if(argc!=7 || !check_date(argv[5]) || !check_time(argv[6]))
+		{
+			fprintf(stderr,"\tOR\n%s hostname port myname remove date start_time\n", argv[0]);//7
+			exit(0);
+		}
+		strcpy(buffer->name,argv[3]);
+		strcpy(buffer->date,argv[5]);
+		strcpy(buffer->start_time,argv[6]);
+		buffer->type=2;
+		buffer->next=NULL;
+	}
+	else if(!strcmp(argv[4],"update"))
+	{
+		if(argc!=9 || !check_date(argv[5]) || !check_time(argv[6]) || !check_time(argv[7]))
+		{
+			fprintf(stderr,"\tOR\n%s hostname port myname update date start_time end_time type_of_event\n", argv[0]);//9
+			exit(0);
+		}
+		strcpy(buffer->name,argv[3]);
+		strcpy(buffer->date,argv[5]);
+		strcpy(buffer->start_time,argv[6]);
+		strcpy(buffer->end_time,argv[7]);
+		strcpy(buffer->type_of_event,argv[8]);
+		buffer->type=3;
+		buffer->next=NULL;
+	}
+	else if(!strcmp(argv[4],"get") && argc==7)
+	{
+		if(!check_date(argv[5]) || !check_time(argv[6]))
+		{
+			fprintf(stderr,"\tOR\n%s hostname port myname get date start_time\n", argv[0]);//7
+			exit(0);
+		}
+		strcpy(buffer->name,argv[3]);
+		strcpy(buffer->date,argv[5]);
+		strcpy(buffer->start_time,argv[6]);
+		buffer->type=4;
+		buffer->next=NULL;
+	}
+	else if(!strcmp(argv[4],"get") && argc==6)
+	{
+		if(!check_date(argv[5]))
+		{
+			fprintf(stderr,"\tOR\n%s hostname port myname get date\n", argv[0]);//6
+			exit(0);
+		}
+		strcpy(buffer->name,argv[3]);
+		strcpy(buffer->date,argv[5]);
+		buffer->type=5;
+		buffer->next=NULL;
+	}
+	else if(!strcmp(argv[4],"getall"))
+    {
+        if(argc!=5)
+        {
+                fprintf(stderr,"\tOR\n%s hostname port myname getall\n", argv[0]);//5
+                exit(0);
+        }
+        strcpy(buffer->name,argv[3]);
+        buffer->type=6;
+    }
+	
+	//print_buffer(buffer);
+	
+	portno = atoi(argv[2]);
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	if (sockfd < 0) 
+		error("ERROR opening socket");
+	
+	server = gethostbyname(argv[1]);
+	if (server == NULL)
+	{
+		fprintf(stderr,"ERROR, no such host\n");
+		exit(0);
+	}
+	
+	memset((char *) &serv_addr,0,sizeof(serv_addr));
+	serv_addr.sin_family = AF_INET;
+	memcpy((char *)&serv_addr.sin_addr.s_addr,(char *)server->h_addr,server->h_length);
+	serv_addr.sin_port = htons(portno);
+	if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) 
+		error("ERROR connecting");
+	
+	n = write(sockfd,buffer,sizeof(message));
+	if (n < 0)
+		error("ERROR writing to socket");
+
+	if(buffer->type==1 || buffer->type==2 || buffer->type==3)
+	{
+		memset(msg,0,256);
+		n = read(sockfd,msg,255);
+		if (n < 0) 
+			error("ERROR reading from socket");
+		printf("%s\n",msg);
+	}
+	else if(buffer->type==4 || buffer->type==5)
+	{
+		n = read(sockfd,temp,sizeof(message));
+		if (n < 0)
+			error("ERROR reading from socket");
+		while(atoi(temp->date)!=252525)
+		{
+			cout<<endl;
+			printf("Event Date : %s\n",temp->date);
+			printf("Event Start Time : %s\n",temp->start_time);
+			printf("Event End Time : %s\n",temp->end_time);
+			printf("Event Type : %s\n",temp->type_of_event);
+			cout << endl;
+			n = read(sockfd,temp,sizeof(message));
+			if (n < 0)
+				error("ERROR reading from socket");
+		}
+	}
+	else if(buffer->type==6)
+	{
+		n = read(sockfd,temp,sizeof(message));
+		if (n < 0)
+			error("ERROR reading from socket");
+		int entries=temp->type;
+		
+		for(int p=0;p<entries;p++)
+		{
+			temp->type=7;
+			sprintf(temp->name,"%d",p);
+			n = write(sockfd,temp,sizeof(message));
+			if (n < 0)
+				error("ERROR writing to socket");
+			n = read(sockfd,temp,sizeof(message));
+			if (n < 0)
+				error("ERROR reading from socket");
+			cout<<endl;
+			printf("Event Date : %s\n",temp->date);
+			printf("Event Start Time : %s\n",temp->start_time);
+			printf("Event End Time : %s\n",temp->end_time);
+			printf("Event Type : %s\n",temp->type_of_event);
+			cout << endl;
+			if(p!=entries-1)
+				usleep(2000000);
+		}
+	}
+	close(sockfd);
+	return 0;
+}
